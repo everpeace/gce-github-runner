@@ -273,7 +273,7 @@ function start_vm {
     ${accelerator} \
     ${maintenance_policy_flag} \
     --labels=gh_ready=0 \
-    --metadata=startup-script="$startup_script" \
+    --metadata=install-nvidia-driver=True,startup-script="$startup_script" \
     && echo "label=${VM_ID}" >> $GITHUB_OUTPUT
 
   safety_off
