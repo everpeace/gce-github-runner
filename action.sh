@@ -193,6 +193,8 @@ function start_vm {
   echo "The new GCE VM will be ${VM_ID}"
 
   startup_script="
+  runner_sa=\$(gcloud auth list --format json | jq -r '.[] | select(.status="ACTIVE") | .account')
+
   # Install NVIDIA driver if exists
   [[ -x /opt/deeplearning/install-driver.sh ]] && /opt/deeplearning/install-driver.sh
 
@@ -200,6 +202,7 @@ function start_vm {
 	cat <<-EOF > /etc/systemd/system/shutdown.sh
 	#!/bin/sh
 	sleep ${shutdown_timeout}
+	[ -z \$runner_sa ] || gcloud auth activate-service-account \$runner_sa
 	gcloud compute instances delete $VM_ID --zone=$machine_zone --quiet
 	EOF
 
@@ -231,7 +234,7 @@ function start_vm {
 	./svc.sh start && \\
 	gcloud compute instances add-labels ${VM_ID} --zone=${machine_zone} --labels=gh_ready=1
 	# 3 days represents the max workflow runtime. This will shutdown the instance if everything else fails.
-	nohup sh -c \"sleep 3d && gcloud --quiet compute instances delete ${VM_ID} --zone=${machine_zone}\" > /dev/null &
+	nohup sh -c \"sleep 3d && ( [ -z \$runner_sa ] || gcloud auth activate-service-account \$runner_sa ) && gcloud --quiet compute instances delete ${VM_ID} --zone=${machine_zone}\" > /dev/null &
   "
 
   if $actions_preinstalled ; then
