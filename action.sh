@@ -282,7 +282,7 @@ function start_vm {
     ${subnet_flag} \
     ${accelerator} \
     ${maintenance_policy_flag} \
-    --labels=gh_ready=0,usage=gh_runner \
+    --labels="gh_ready=0,usage=gh_runner,gh_repo_owner=${GITHUB_REPOSITORY_OWNER},gh_repo=${GITHUB_REPOSITORY##*/},gh_run_id=${GITHUB_RUN_ID}" \
     --metadata=startup-script="$startup_script" \
     && echo "label=${VM_ID}" >> $GITHUB_OUTPUT
 
