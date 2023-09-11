@@ -198,9 +198,39 @@ function start_vm {
 
   echo "The new GCE VM will be ${VM_ID}"
 
+  cat <<-EOT > /tmp/shutdown_script.sh
+	#!/bin/bash
+	preempted=\$(curl -Ss http://metadata.google.internal/computeMetadata/v1/instance/preempted -H 'Metadata-Flavor: Google')
+	if [[ \$preempted = 'TRUE' ]]; then
+	pr_numbers=\$(curl -sSL \\
+	  -H "Accept: application/vnd.github+json" \\
+	  -H "Authorization: Bearer ${token}" \\
+	  https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} | jq -r '.pull_requests[] | .number'
+	)
+	pr_numbers=(\${pr_numbers})
+	for pr_number in \${pr_numbers[@]}; do
+	  curl -sSL \\
+	    -X POST \\
+	    -H "Accept: application/vnd.github+json" \\
+	    -H "Authorization: Bearer ${token}" \\
+	    -d '{"body": "### Github runner instance in GCE was preempted\nTEST: Please [re-run the jobs](https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})."}' \\
+	    https://api.github.com/repos/t2-auto/apollo/issues/\${pr_number}/comments
+	done
+	[[ -x /opt/deeplearning/bin/shutdown_script.sh ]] && /opt/deeplearning/bin/shutdown_script.sh
+	CLOUDSDK_CONFIG=/tmp  gcloud --quiet compute instances delete ${VM_ID} --zone=${machine_zone} || true
+	fi
+	EOT
+  shutdown_script="$(cat /tmp/shutdown_script.sh)"
+
   startup_script="
-  # Install NVIDIA driver if exists
-  [[ -x /opt/deeplearning/install-driver.sh ]] && /opt/deeplearning/install-driver.sh
+	# Install NVIDIA driver if exists
+	[[ -x /opt/deeplearning/install-driver.sh ]] && /opt/deeplearning/install-driver.sh
+
+	cat <<-'EOT' > /tmp/shutdown_script.sh
+	${shutdown_script}
+	EOT
+	chmod +x /tmp/shutdown_script.sh
+	gcloud --quiet compute instances add-metadata $VM_ID --zone=${machine_zone} --metadata-from-file=shutdown-script=/tmp/shutdown_script.sh
 
 	# Create a systemd service in charge of shutting down the machine once the workflow has finished
 	cat <<-EOF > /etc/systemd/system/shutdown.sh
@@ -287,6 +317,7 @@ function start_vm {
     ${maintenance_policy_flag} \
     ${instance_termination_action_flag} \
     --labels="gh_ready=0,usage=gh_runner,gh_repo_owner=${GITHUB_REPOSITORY_OWNER},gh_repo=${GITHUB_REPOSITORY##*/},gh_run_id=${GITHUB_RUN_ID}" \
+    --metadata-from-file=shutdown-script=/tmp/shutdown_script.sh \
     --metadata=startup-script="$startup_script" \
     && echo "label=${VM_ID}" >> $GITHUB_OUTPUT
   safety_off
